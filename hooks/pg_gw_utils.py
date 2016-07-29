@@ -93,7 +93,7 @@ def configure_pg_sources():
         log('Unable to update /etc/apt/sources.list')
 
 
-def configure_analyst_opsvm():
+def configure_analyst_opsvm(opsvm_ip):
     '''
     Configures Anaylyst for OPSVM
     '''
@@ -106,7 +106,7 @@ def configure_analyst_opsvm():
         + '/usr/bin/service plumgrid-sigmund status'
     sigmund_autoboot = ns_enter \
         + '/usr/bin/sigmund-configure --ip {0} --start --autoboot' \
-        .format(config('opsvm-ip'))
+        .format(opsvm_ip)
     try:
         status = subprocess.check_output(sigmund_status, shell=True)
         if 'start/running' in status:
