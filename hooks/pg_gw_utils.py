@@ -459,6 +459,10 @@ def restart_on_change(restart_map):
                 if path_hash(path) != checksums[path]:
                     if path == PG_IFCS_CONF:
                         ensure_files()
+                    if path == OPS_CONF:
+                        from pg_gw_context import _pg_dir_context
+                        opsvm_ip = _pg_dir_context()['opsvm_ip']
+                        configure_analyst_opsvm(opsvm_ip)
                     restart_pg()
                     break
         return wrapped_f
