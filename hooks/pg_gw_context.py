@@ -32,8 +32,6 @@ def _pg_dir_context():
             if "opsvm_ip" in rdata:
                 ctxt['opsvm_ip'] = \
                     rdata['opsvm_ip']
-                from pg_gw_utils import configure_analyst_opsvm
-                configure_analyst_opsvm(ctxt['opsvm_ip'])
     return ctxt
 
 
