@@ -35,7 +35,8 @@ from pg_gw_utils import (
     restart_on_change,
     restart_on_stop,
     director_cluster_ready,
-    configure_pg_sources
+    configure_pg_sources,
+    docker_configure_sources
 )
 
 hooks = Hooks()
@@ -49,6 +50,7 @@ def install():
     '''
     status_set('maintenance', 'Executing pre-install')
     load_iptables()
+    docker_configure_sources()
     configure_sources(update=True)
     status_set('maintenance', 'Installing apt packages')
     pkgs = determine_packages()
