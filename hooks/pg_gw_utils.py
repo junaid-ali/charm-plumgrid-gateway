@@ -138,19 +138,43 @@ def docker_configure_sources():
     ubuntu_rel = lsb_release()['DISTRIB_CODENAME']
     DOCKER_SOURCE = ('deb https://apt.dockerproject.org/repo ubuntu-%s'
                      ' main')
-    cmd = ('apt-key adv --keyserver hkp://p80.pool.sks-keyservers.net:80'
-           ' --recv-keys 58118E89F3A912897C070ADBF76221572C52609D')
-    log('Importing GPG for docker engine')
-    try:
-        subprocess.check_call(cmd, shell=True)
-    except:
-        raise ValueError('Error importing docker GPG Key')
+    log('Importing GPG Key for docker engine')
+    _exec_cmd(['apt-key', 'adv', '--keyserver',
+               'hkp://p80.pool.sks-keyservers.net:80',
+               '--recv-keys', '58118E89F3A912897C070ADBF76221572C52609D'])
     try:
         with open('/etc/apt/sources.list.d/docker.list', 'w') as f:
             f.write(DOCKER_SOURCE % ubuntu_rel)
         f.close()
     except:
-        log('Unable to update /etc/apt/sources.list.d/docker.list')
+        raise ValueError('Unable to update /etc/apt/sources.list.d/'
+                         'docker.list')
+
+
+def configure_analyst_opsvm():
+    '''
+    Configures Anaylyst for OPSVM
+    '''
+    if not service_running('plumgrid'):
+        restart_pg()
+    opsvm_ip = pg_gw_context._pg_dir_context()['opsvm_ip']
+    NS_ENTER = ('/opt/local/bin/nsenter -t $(ps ho pid --ppid $(cat'
+                '/var/run/libvirt/lxc/plumgrid.pid)) -m -n -u -i -p ')
+    sigmund_stop = NS_ENTER + '/usr/bin/service plumgrid-sigmund stop'
+    sigmund_status = NS_ENTER \
+        + '/usr/bin/service plumgrid-sigmund status'
+    sigmund_autoboot = NS_ENTER \
+        + '/usr/bin/sigmund-configure --ip {0} --start --autoboot' \
+        .format(opsvm_ip)
+    try:
+        status = subprocess.check_output(sigmund_status, shell=True)
+        if 'start/running' in status:
+            if subprocess.call(sigmund_stop, shell=True):
+                log('plumgrid-sigmund couldn\'t be stopped!')
+                return
+        subprocess.check_call(sigmund_autoboot, shell=True)
+    except:
+        log('plumgrid-sigmund couldn\'t be started!')
 
 
 def register_configs(release=None):
