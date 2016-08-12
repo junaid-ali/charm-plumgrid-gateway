@@ -158,7 +158,7 @@ def configure_analyst_opsvm():
     if not service_running('plumgrid'):
         restart_pg()
     opsvm_ip = pg_gw_context._pg_dir_context()['opsvm_ip']
-    NS_ENTER = ('/opt/local/bin/nsenter -t $(ps ho pid --ppid $(cat'
+    NS_ENTER = ('/opt/local/bin/nsenter -t $(ps ho pid --ppid $(cat '
                 '/var/run/libvirt/lxc/plumgrid.pid)) -m -n -u -i -p ')
     sigmund_stop = NS_ENTER + '/usr/bin/service plumgrid-sigmund stop'
     sigmund_status = NS_ENTER \
