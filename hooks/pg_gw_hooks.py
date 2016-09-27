@@ -33,22 +33,25 @@ from pg_gw_utils import (
     fabric_interface_changed,
     load_iptables,
     restart_on_change,
+    restart_pg,
     restart_on_stop,
     director_cluster_ready,
-    configure_pg_sources
+    configure_pg_sources,
+    docker_configure_sources
 )
 
 hooks = Hooks()
 CONFIGS = register_configs()
 
 
-@hooks.hook()
+@hooks.hook('install.real')
 def install():
     '''
     Install hook is run when the charm is first deployed on a node.
     '''
     status_set('maintenance', 'Executing pre-install')
     load_iptables()
+    docker_configure_sources()
     configure_sources(update=True)
     status_set('maintenance', 'Installing apt packages')
     pkgs = determine_packages()
@@ -70,6 +73,7 @@ def plumgrid_changed():
     if director_cluster_ready():
         ensure_mtu()
         CONFIGS.write_all()
+        restart_pg()
 
 
 @hooks.hook('config-changed')
@@ -103,6 +107,7 @@ def config_changed():
             load_iovisor()
     ensure_mtu()
     CONFIGS.write_all()
+    restart_pg()
 
 
 @hooks.hook('upgrade-charm')

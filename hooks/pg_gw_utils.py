@@ -30,7 +30,8 @@ from charmhelpers.core.host import (
     service_stop,
     service_running,
     path_hash,
-    set_nic_mtu
+    set_nic_mtu,
+    lsb_release
 )
 from charmhelpers.fetch import (
     apt_cache,
@@ -43,14 +44,14 @@ from charmhelpers.contrib.openstack.utils import (
 SOURCES_LIST = '/etc/apt/sources.list'
 LXC_CONF = "/etc/libvirt/lxc.conf"
 TEMPLATES = 'templates/'
-PG_LXC_DATA_PATH = '/var/lib/libvirt/filesystems/plumgrid-data'
+PG_LXC_DATA_PATH = '/var/lib/plumgrid/plumgrid-data'
 PG_CONF = '%s/conf/pg/plumgrid.conf' % PG_LXC_DATA_PATH
 PG_HN_CONF = '%s/conf/etc/hostname' % PG_LXC_DATA_PATH
 PG_HS_CONF = '%s/conf/etc/hosts' % PG_LXC_DATA_PATH
 PG_IFCS_CONF = '%s/conf/pg/ifcs.conf' % PG_LXC_DATA_PATH
 OPS_CONF = '%s/conf/etc/00-pg.conf' % PG_LXC_DATA_PATH
 AUTH_KEY_PATH = '%s/root/.ssh/authorized_keys' % PG_LXC_DATA_PATH
-IFC_LIST_GW = '/var/run/plumgrid/lxc/ifc_list_gateway'
+IFC_LIST_GW = '/var/run/plumgrid/ifc_list_gateway'
 SUDOERS_CONF = '/etc/sudoers.d/ifc_ctl_sudoers'
 
 BASE_RESOURCE_MAP = OrderedDict([
@@ -93,37 +94,14 @@ def configure_pg_sources():
         log('Unable to update /etc/apt/sources.list')
 
 
-def configure_analyst_opsvm(opsvm_ip):
-    '''
-    Configures Anaylyst for OPSVM
-    '''
-    if not service_running('plumgrid'):
-        restart_pg()
-    NS_ENTER = ('/opt/local/bin/nsenter -t $(ps ho pid --ppid $(cat '
-                '/var/run/libvirt/lxc/plumgrid.pid)) -m -n -u -i -p ')
-    sigmund_stop = NS_ENTER + '/usr/bin/service plumgrid-sigmund stop'
-    sigmund_status = NS_ENTER \
-        + '/usr/bin/service plumgrid-sigmund status'
-    sigmund_autoboot = NS_ENTER \
-        + '/usr/bin/sigmund-configure --ip {0} --start --autoboot' \
-        .format(opsvm_ip)
-    try:
-        status = subprocess.check_output(sigmund_status, shell=True)
-        if 'start/running' in status:
-            if subprocess.call(sigmund_stop, shell=True):
-                log('plumgrid-sigmund couldn\'t be stopped!')
-                return
-        subprocess.check_call(sigmund_autoboot, shell=True)
-    except:
-        log('plumgrid-sigmund couldn\'t be started!')
-
-
 def determine_packages():
     '''
     Returns list of packages required by PLUMgrid Gateway as specified
     in the neutron_plugins dictionary in charmhelpers.
     '''
     pkgs = []
+    pkgs.extend(docker_dependencies())
+    pkgs.append('docker-engine')
     tag = 'latest'
     for pkg in neutron_plugin_attribute('plumgrid', 'packages', 'neutron'):
         if 'plumgrid' in pkg:
@@ -142,6 +120,35 @@ def determine_packages():
                     % (tag, pkg)
                 raise ValueError(error_msg)
     return pkgs
+
+
+def docker_dependencies():
+    '''
+    Returns a list of packages to be installed for docker engine
+    '''
+    kver = subprocess.check_output(['uname', '-r']).replace('\n', '')
+    return ['apt-transport-https', 'ca-certificates', 'apparmor',
+            'linux-image-extra-{}'.format(kver)]
+
+
+def docker_configure_sources():
+    '''
+    Imports GPG key and updates apt source for docker engine
+    '''
+    ubuntu_rel = lsb_release()['DISTRIB_CODENAME']
+    DOCKER_SOURCE = ('deb https://apt.dockerproject.org/repo ubuntu-%s'
+                     ' main')
+    log('Importing GPG Key for docker engine')
+    _exec_cmd(['apt-key', 'adv', '--keyserver',
+               'hkp://p80.pool.sks-keyservers.net:80',
+               '--recv-keys', '58118E89F3A912897C070ADBF76221572C52609D'])
+    try:
+        with open('/etc/apt/sources.list.d/docker.list', 'w') as f:
+            f.write(DOCKER_SOURCE % ubuntu_rel)
+        f.close()
+    except:
+        raise ValueError('Unable to update /etc/apt/sources.list.d/'
+                         'docker.list')
 
 
 def register_configs(release=None):
@@ -192,16 +199,16 @@ def restart_pg():
     service_start('plumgrid')
     time.sleep(3)
     if not service_running('plumgrid'):
-        if service_running('libvirt-bin'):
+        if service_running('docker-engine'):
             raise ValueError("plumgrid service couldn't be started")
         else:
-            if service_start('libvirt-bin'):
+            if service_start('docker-engine'):
                 time.sleep(8)
                 if not service_running('plumgrid') \
                         and not service_start('plumgrid'):
                     raise ValueError("plumgrid service couldn't be started")
             else:
-                raise ValueError("libvirt-bin service couldn't be started")
+                raise ValueError("docker-engine service couldn't be started")
     status_set('active', 'Unit is ready')
 
 
@@ -306,22 +313,12 @@ def get_gw_interfaces():
     Gateway node can have multiple interfaces. This function parses json
     provided in config to get all gateway interfaces for this node.
     '''
-    node_interfaces = []
-    try:
-        all_interfaces = json.loads(config('external-interfaces'))
-    except ValueError:
-        raise ValueError("Invalid json provided for gateway interfaces")
-    hostname = get_unit_hostname()
-    if hostname in all_interfaces:
-        node_interfaces = all_interfaces[hostname].split(',')
-    elif 'DEFAULT' in all_interfaces:
-        node_interfaces = all_interfaces['DEFAULT'].split(',')
-    for interface in node_interfaces:
-        if not interface_exists(interface):
-            log('Provided gateway interface %s does not exist'
-                % interface)
-            raise ValueError('Provided gateway interface does not exist')
-    return node_interfaces
+    interface = config('external-interfaces')
+    if not interface_exists(interface):
+        log('Provided gateway interface %s does not exist'
+            % interface)
+        raise ValueError('Provided gateway interface does not exist')
+    return interface
 
 
 def ensure_mtu():
@@ -367,7 +364,7 @@ def add_lcm_key():
         try:
             fr = open(AUTH_KEY_PATH, 'r')
         except IOError:
-            log('plumgrid-lxc not installed yet')
+            log('plumgrid-docker package not installed yet')
             return 0
         for line in fr:
             if key in line:
@@ -459,10 +456,6 @@ def restart_on_change(restart_map):
                 if path_hash(path) != checksums[path]:
                     if path == PG_IFCS_CONF:
                         ensure_files()
-                    if path == OPS_CONF:
-                        from pg_gw_context import _pg_dir_context
-                        opsvm_ip = _pg_dir_context()['opsvm_ip']
-                        configure_analyst_opsvm(opsvm_ip)
                     restart_pg()
                     break
         return wrapped_f
