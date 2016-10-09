@@ -73,6 +73,7 @@ class PGGwContextTest(CharmTestCase):
             'local_ip': '192.168.100.203',
             'director_ips_string': '192.168.100.201',
             'network_manager': 'neutron',
+            'external-interface': 'ens2',
             'neutron_plugin': 'plumgrid',
             'neutron_security_groups': None,
             'neutron_url': 'https://192.168.100.203:9696',

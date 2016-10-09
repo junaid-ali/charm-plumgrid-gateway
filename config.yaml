@@ -5,6 +5,11 @@ options:
     description: |
        One or multiple interfaces that will provide external connectivity on
        each of the gateway nodes. Provided in form of json in a string.
+  external-interface:
+    type: string
+    description: |
+       Interface that will provide external connectivity on each of the gateway
+       node. Provided in form of json in a string. This config is specific to OIL.
   lcm-ssh-key:
     default: 'null'
     type: string

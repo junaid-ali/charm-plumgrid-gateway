@@ -21,6 +21,8 @@ from charmhelpers.core.hookenv import (
 )
 from charmhelpers.contrib.network.ip import (
     get_iface_from_addr,
+    get_host_ip,
+    get_iface_addr,
     get_bridges,
     get_bridge_nics,
 )
@@ -255,7 +257,13 @@ def get_mgmt_interface():
     '''
     mgmt_interface = config('mgmt-interface')
     if not mgmt_interface:
-        return get_iface_from_addr(unit_get('private-address'))
+        try:
+            return get_iface_from_addr(unit_get('private-address'))
+        except:
+            for bridge_interface in get_bridges():
+                if (get_host_ip(unit_get('private-address'))
+                        in get_iface_addr(bridge_interface)):
+                    return bridge_interface
     elif interface_exists(mgmt_interface):
         return mgmt_interface
     else:
@@ -313,12 +321,30 @@ def get_gw_interfaces():
     Gateway node can have multiple interfaces. This function parses json
     provided in config to get all gateway interfaces for this node.
     '''
-    interface = config('external-interfaces')
-    if not interface_exists(interface):
-        log('Provided gateway interface %s does not exist'
-            % interface)
-        raise ValueError('Provided gateway interface does not exist')
-    return interface
+    interface = config('external-interface')
+    if interface:
+        if not interface_exists(interface):
+            log('Provided gateway interface %s does not exist'
+                % interface)
+            raise ValueError('Provided gateway interface does not exist')
+        else:
+            return interface
+    node_interfaces = []
+    try:
+        all_interfaces = json.loads(config('external-interfaces'))
+    except ValueError:
+        raise ValueError("Invalid json provided for gateway interfaces")
+    hostname = get_unit_hostname()
+    if hostname in all_interfaces:
+        node_interfaces = all_interfaces[hostname].split(',')
+    elif 'DEFAULT' in all_interfaces:
+        node_interfaces = all_interfaces['DEFAULT'].split(',')
+    for interface in node_interfaces:
+        if not interface_exists(interface):
+            log('Provided gateway interface %s does not exist'
+                % interface)
+            raise ValueError('Provided gateway interface does not exist')
+    return node_interfaces
 
 
 def ensure_mtu():

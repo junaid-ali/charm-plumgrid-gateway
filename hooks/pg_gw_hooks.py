@@ -12,6 +12,7 @@ from charmhelpers.core.hookenv import (
     UnregisteredHookError,
     log,
     config,
+    relation_set,
     status_set
 )
 
@@ -36,8 +37,7 @@ from pg_gw_utils import (
     restart_pg,
     restart_on_stop,
     director_cluster_ready,
-    configure_pg_sources,
-    docker_configure_sources
+    configure_pg_sources
 )
 
 hooks = Hooks()
@@ -51,7 +51,6 @@ def install():
     '''
     status_set('maintenance', 'Executing pre-install')
     load_iptables()
-    docker_configure_sources()
     configure_sources(update=True)
     status_set('maintenance', 'Installing apt packages')
     pkgs = determine_packages()
@@ -73,7 +72,16 @@ def plumgrid_changed():
     if director_cluster_ready():
         ensure_mtu()
         CONFIGS.write_all()
-        restart_pg()
+
+
+@hooks.hook('plumgrid-relation-joined')
+def gateway_node_joined(relation_id=None):
+    '''
+    This hook is run when relation between plumgrid-gateway and
+    plumgrid-director is made.
+    '''
+    rel_data = {'gateway-peer': 'gateway-peer'}
+    relation_set(relation_id=relation_id, **rel_data)
 
 
 @hooks.hook('config-changed')
@@ -107,7 +115,8 @@ def config_changed():
             load_iovisor()
     ensure_mtu()
     CONFIGS.write_all()
-    restart_pg()
+    if not service_running('plumgrid'):
+        restart_pg()
 
 
 @hooks.hook('upgrade-charm')
