@@ -17,12 +17,15 @@ from charmhelpers.core.hookenv import (
     log,
     config,
     unit_get,
+    network_get_primary_address,
     status_set
 )
 from charmhelpers.contrib.network.ip import (
     get_iface_from_addr,
     get_bridges,
     get_bridge_nics,
+    get_iface_addr,
+    get_host_ip
 )
 from charmhelpers.core.host import (
     write_file,
@@ -30,7 +33,8 @@ from charmhelpers.core.host import (
     service_stop,
     service_running,
     path_hash,
-    set_nic_mtu
+    set_nic_mtu,
+    lsb_release
 )
 from charmhelpers.fetch import (
     apt_cache,
@@ -41,16 +45,15 @@ from charmhelpers.contrib.openstack.utils import (
 )
 
 SOURCES_LIST = '/etc/apt/sources.list'
-LXC_CONF = "/etc/libvirt/lxc.conf"
 TEMPLATES = 'templates/'
-PG_LXC_DATA_PATH = '/var/lib/libvirt/filesystems/plumgrid-data'
-PG_CONF = '%s/conf/pg/plumgrid.conf' % PG_LXC_DATA_PATH
-PG_HN_CONF = '%s/conf/etc/hostname' % PG_LXC_DATA_PATH
-PG_HS_CONF = '%s/conf/etc/hosts' % PG_LXC_DATA_PATH
-PG_IFCS_CONF = '%s/conf/pg/ifcs.conf' % PG_LXC_DATA_PATH
-OPS_CONF = '%s/conf/etc/00-pg.conf' % PG_LXC_DATA_PATH
-AUTH_KEY_PATH = '%s/root/.ssh/authorized_keys' % PG_LXC_DATA_PATH
-IFC_LIST_GW = '/var/run/plumgrid/lxc/ifc_list_gateway'
+PG_DATA_PATH = '/var/lib/plumgrid/plumgrid-data'
+PG_CONF = '%s/conf/pg/plumgrid.conf' % PG_DATA_PATH
+PG_HN_CONF = '%s/conf/etc/hostname' % PG_DATA_PATH
+PG_HS_CONF = '%s/conf/etc/hosts' % PG_DATA_PATH
+PG_IFCS_CONF = '%s/conf/pg/ifcs.conf' % PG_DATA_PATH
+OPS_CONF = '%s/conf/etc/00-pg.conf' % PG_DATA_PATH
+AUTH_KEY_PATH = '%s/root/.ssh/authorized_keys' % PG_DATA_PATH
+IFC_LIST_GW = '/var/run/plumgrid/ifc_list_gateway'
 SUDOERS_CONF = '/etc/sudoers.d/ifc_ctl_sudoers'
 
 BASE_RESOURCE_MAP = OrderedDict([
@@ -93,37 +96,14 @@ def configure_pg_sources():
         log('Unable to update /etc/apt/sources.list')
 
 
-def configure_analyst_opsvm(opsvm_ip):
-    '''
-    Configures Anaylyst for OPSVM
-    '''
-    if not service_running('plumgrid'):
-        restart_pg()
-    NS_ENTER = ('/opt/local/bin/nsenter -t $(ps ho pid --ppid $(cat '
-                '/var/run/libvirt/lxc/plumgrid.pid)) -m -n -u -i -p ')
-    sigmund_stop = NS_ENTER + '/usr/bin/service plumgrid-sigmund stop'
-    sigmund_status = NS_ENTER \
-        + '/usr/bin/service plumgrid-sigmund status'
-    sigmund_autoboot = NS_ENTER \
-        + '/usr/bin/sigmund-configure --ip {0} --start --autoboot' \
-        .format(opsvm_ip)
-    try:
-        status = subprocess.check_output(sigmund_status, shell=True)
-        if 'start/running' in status:
-            if subprocess.call(sigmund_stop, shell=True):
-                log('plumgrid-sigmund couldn\'t be stopped!')
-                return
-        subprocess.check_call(sigmund_autoboot, shell=True)
-    except:
-        log('plumgrid-sigmund couldn\'t be started!')
-
-
 def determine_packages():
     '''
     Returns list of packages required by PLUMgrid Gateway as specified
     in the neutron_plugins dictionary in charmhelpers.
     '''
     pkgs = []
+    pkgs.extend(docker_dependencies())
+    pkgs.append('docker-engine')
     tag = 'latest'
     for pkg in neutron_plugin_attribute('plumgrid', 'packages', 'neutron'):
         if 'plumgrid' in pkg:
@@ -142,6 +122,47 @@ def determine_packages():
                     % (tag, pkg)
                 raise ValueError(error_msg)
     return pkgs
+
+
+def docker_dependencies():
+    '''
+    Returns a list of packages to be installed for docker engine
+    '''
+    kver = subprocess.check_output(['uname', '-r']).replace('\n', '')
+    return ['apt-transport-https', 'ca-certificates', 'apparmor',
+            'linux-image-extra-{}'.format(kver)]
+
+
+def docker_configure_sources():
+    '''
+    Imports GPG key and updates apt source for docker engine
+    '''
+    ubuntu_rel = lsb_release()['DISTRIB_CODENAME']
+    DOCKER_SOURCE = ('deb https://apt.dockerproject.org/repo ubuntu-%s'
+                     ' main')
+    log('Importing GPG Key for docker engine')
+    _exec_cmd(['apt-key', 'adv', '--keyserver',
+               'hkp://p80.pool.sks-keyservers.net:80',
+               '--recv-keys', '58118E89F3A912897C070ADBF76221572C52609D'])
+    try:
+        with open('/etc/apt/sources.list.d/docker.list', 'w') as f:
+            f.write(DOCKER_SOURCE % ubuntu_rel)
+        f.close()
+    except:
+        raise ValueError('Unable to update /etc/apt/sources.list.d/'
+                         'docker.list')
+
+
+def get_unit_address(binding='internal'):
+    '''
+    Returns the unit's PLUMgrid Management/Fabric IP
+    '''
+    try:
+        # Using Juju 2.0 network spaces feature
+        return network_get_primary_address(binding)
+    except NotImplementedError:
+        # Falling back to private-address
+        return unit_get('private-address')
 
 
 def register_configs(release=None):
@@ -192,16 +213,16 @@ def restart_pg():
     service_start('plumgrid')
     time.sleep(3)
     if not service_running('plumgrid'):
-        if service_running('libvirt-bin'):
+        if service_running('docker-engine'):
             raise ValueError("plumgrid service couldn't be started")
         else:
-            if service_start('libvirt-bin'):
+            if service_start('docker-engine'):
                 time.sleep(8)
                 if not service_running('plumgrid') \
                         and not service_start('plumgrid'):
                     raise ValueError("plumgrid service couldn't be started")
             else:
-                raise ValueError("libvirt-bin service couldn't be started")
+                raise ValueError("docker-engine service couldn't be started")
     status_set('active', 'Unit is ready')
 
 
@@ -248,13 +269,24 @@ def get_mgmt_interface():
     '''
     mgmt_interface = config('mgmt-interface')
     if not mgmt_interface:
-        return get_iface_from_addr(unit_get('private-address'))
+        try:
+            return get_iface_from_addr(get_unit_address())
+        except:
+            # workaroud if get_unit_address returns hostname
+            # (issue with unit-get 'private-address') also
+            # workaround the curtin issue where the
+            # interface on which bridge is created also gets
+            # an ip
+            for bridge_interface in get_bridges():
+                if (get_host_ip(get_unit_address())
+                        in get_iface_addr(bridge_interface)):
+                    return bridge_interface
     elif interface_exists(mgmt_interface):
         return mgmt_interface
     else:
         log('Provided managment interface %s does not exist'
             % mgmt_interface)
-        return get_iface_from_addr(unit_get('private-address'))
+        return get_iface_from_addr(get_unit_address())
 
 
 def fabric_interface_changed():
@@ -280,6 +312,13 @@ def get_fabric_interface():
     fabric_interfaces = config('fabric-interfaces')
     if fabric_interfaces == 'MANAGEMENT':
         return get_mgmt_interface()
+    elif fabric_interfaces == 'BIND':
+        try:
+            return get_iface_from_addr(get_unit_address('fabric'))
+        except:
+            raise ValueError('Unable to get interface using \'fabric\' \
+                              binding! Ensure fabric interface has IP \
+                              assigned.')
     else:
         try:
             all_fabric_interfaces = json.loads(fabric_interfaces)
@@ -367,7 +406,7 @@ def add_lcm_key():
         try:
             fr = open(AUTH_KEY_PATH, 'r')
         except IOError:
-            log('plumgrid-lxc not installed yet')
+            log('plumgrid-edge-docker package not installed yet')
             return 0
         for line in fr:
             if key in line:
@@ -459,10 +498,6 @@ def restart_on_change(restart_map):
                 if path_hash(path) != checksums[path]:
                     if path == PG_IFCS_CONF:
                         ensure_files()
-                    if path == OPS_CONF:
-                        from pg_gw_context import _pg_dir_context
-                        opsvm_ip = _pg_dir_context()['opsvm_ip']
-                        configure_analyst_opsvm(opsvm_ip)
                     restart_pg()
                     break
         return wrapped_f
