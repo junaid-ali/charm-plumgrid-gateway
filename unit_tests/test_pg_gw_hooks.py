@@ -31,7 +31,7 @@ TO_PATCH = [
     'load_iptables',
     'director_cluster_ready',
     'status_set',
-    'docker_configure_sources'
+    'configure_analyst_opsvm'
 ]
 NEUTRON_CONF_DIR = "/etc/neutron"
 

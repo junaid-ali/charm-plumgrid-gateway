@@ -202,7 +202,7 @@ def neutron_plugins():
                                         database=config('database'),
                                         ssl_dir=NEUTRON_CONF_DIR)],
             'services': [],
-            'packages': ['plumgrid-edge-docker',
+            'packages': ['plumgrid-lxc',
                          'iovisor-dkms'],
             'server_packages': ['neutron-server',
                                 'neutron-plugin-plumgrid'],

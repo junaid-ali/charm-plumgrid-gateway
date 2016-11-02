@@ -37,21 +37,20 @@ from pg_gw_utils import (
     restart_on_stop,
     director_cluster_ready,
     configure_pg_sources,
-    docker_configure_sources
+    configure_analyst_opsvm
 )
 
 hooks = Hooks()
 CONFIGS = register_configs()
 
 
-@hooks.hook('install.real')
+@hooks.hook()
 def install():
     '''
     Install hook is run when the charm is first deployed on a node.
     '''
     status_set('maintenance', 'Executing pre-install')
     load_iptables()
-    docker_configure_sources()
     configure_sources(update=True)
     status_set('maintenance', 'Installing apt packages')
     pkgs = determine_packages()
@@ -72,6 +71,7 @@ def plumgrid_changed():
     '''
     if director_cluster_ready():
         ensure_mtu()
+        configure_analyst_opsvm()
         CONFIGS.write_all()
 
 

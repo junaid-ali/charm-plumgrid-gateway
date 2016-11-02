@@ -8,14 +8,14 @@ description: |
   Gateway can be deployed as a pair in Active/ Active mode for load balancing
   of traffic and high availability of external connectivity.
 series:
+  - trusty
   - xenial
   - yakkety
-####should we add trusty here too?
+tags:
+  - openstack
 extra-bindings:
   internal:
   fabric:
-tags:
-  - openstack
 requires:
   plumgrid:
     interface: plumgrid
