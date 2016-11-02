@@ -44,7 +44,7 @@ hooks = Hooks()
 CONFIGS = register_configs()
 
 
-@hooks.hook()
+@hooks.hook('install.real')
 def install():
     '''
     Install hook is run when the charm is first deployed on a node.
