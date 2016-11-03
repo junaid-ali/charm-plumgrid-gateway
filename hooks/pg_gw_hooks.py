@@ -34,10 +34,11 @@ from pg_gw_utils import (
     fabric_interface_changed,
     load_iptables,
     restart_on_change,
+    restart_pg,
     restart_on_stop,
     director_cluster_ready,
     configure_pg_sources,
-    configure_analyst_opsvm
+    docker_configure_sources
 )
 
 hooks = Hooks()
@@ -51,6 +52,7 @@ def install():
     '''
     status_set('maintenance', 'Executing pre-install')
     load_iptables()
+    docker_configure_sources()
     configure_sources(update=True)
     status_set('maintenance', 'Installing apt packages')
     pkgs = determine_packages()
@@ -71,7 +73,6 @@ def plumgrid_changed():
     '''
     if director_cluster_ready():
         ensure_mtu()
-        configure_analyst_opsvm()
         CONFIGS.write_all()
 
 
@@ -116,6 +117,8 @@ def config_changed():
             load_iovisor()
     ensure_mtu()
     CONFIGS.write_all()
+    if not service_running('plumgrid'):
+        restart_pg()
 
 
 @hooks.hook('upgrade-charm')
