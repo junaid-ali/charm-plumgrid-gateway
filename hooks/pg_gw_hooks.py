@@ -34,6 +34,7 @@ from pg_gw_utils import (
     fabric_interface_changed,
     load_iptables,
     restart_on_change,
+    restart_pg,
     restart_on_stop,
     director_cluster_ready,
     configure_pg_sources,
@@ -116,6 +117,8 @@ def config_changed():
             load_iovisor()
     ensure_mtu()
     CONFIGS.write_all()
+    if not service_running('plumgrid'):
+        restart_pg()
 
 
 @hooks.hook('upgrade-charm')

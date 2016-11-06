@@ -6,6 +6,7 @@ import pg_gw_context
 import subprocess
 import time
 import os
+import platform
 import json
 from collections import OrderedDict
 from socket import gethostname as get_unit_hostname
@@ -124,11 +125,23 @@ def determine_packages():
     return pkgs
 
 
+def get_unit_address(binding='internal'):
+    '''
+    Returns the unit's PLUMgrid Management/Fabric IP
+    '''
+    try:
+        # Using Juju 2.0 network spaces feature
+        return network_get_primary_address(binding)
+    except NotImplementedError:
+        # Falling back to private-address
+        return unit_get('private-address')
+
+
 def docker_dependencies():
     '''
     Returns a list of packages to be installed for docker engine
     '''
-    kver = subprocess.check_output(['uname', '-r']).replace('\n', '')
+    kver = platform.release()
     return ['apt-transport-https', 'ca-certificates', 'apparmor',
             'linux-image-extra-{}'.format(kver)]
 
@@ -151,18 +164,6 @@ def docker_configure_sources():
     except:
         raise ValueError('Unable to update /etc/apt/sources.list.d/'
                          'docker.list')
-
-
-def get_unit_address(binding='internal'):
-    '''
-    Returns the unit's PLUMgrid Management/Fabric IP
-    '''
-    try:
-        # Using Juju 2.0 network spaces feature
-        return network_get_primary_address(binding)
-    except NotImplementedError:
-        # Falling back to private-address
-        return unit_get('private-address')
 
 
 def register_configs(release=None):
@@ -213,16 +214,18 @@ def restart_pg():
     service_start('plumgrid')
     time.sleep(3)
     if not service_running('plumgrid'):
-        if service_running('docker-engine'):
+        if service_running('docker'):
             raise ValueError("plumgrid service couldn't be started")
         else:
-            if service_start('docker-engine'):
+            if service_start('docker'):
                 time.sleep(8)
                 if not service_running('plumgrid') \
                         and not service_start('plumgrid'):
+                    status_set('blocked', 'plumgrid service not running')
                     raise ValueError("plumgrid service couldn't be started")
             else:
-                raise ValueError("docker-engine service couldn't be started")
+                status_set('blocked', 'docker service not running')
+                raise ValueError("docker service couldn't be started")
     status_set('active', 'Unit is ready')
 
 
@@ -270,7 +273,7 @@ def get_mgmt_interface():
     mgmt_interface = config('mgmt-interface')
     if not mgmt_interface:
         try:
-            return get_iface_from_addr(get_unit_address())
+            return get_iface_from_addr(get_unit_address('internal'))
         except:
             # workaroud if get_unit_address returns hostname
             # (issue with unit-get 'private-address') also
@@ -310,34 +313,37 @@ def get_fabric_interface():
     Returns the fabric interface.
     '''
     fabric_interfaces = config('fabric-interfaces')
-    if fabric_interfaces == 'MANAGEMENT':
-        return get_mgmt_interface()
-    elif fabric_interfaces == 'BIND':
+    if not fabric_interfaces:
         try:
-            return get_iface_from_addr(get_unit_address('fabric'))
+            fabric_ip = get_unit_address('fabric')
+            mgmt_ip = get_unit_address('internal')
         except:
             raise ValueError('Unable to get interface using \'fabric\' \
                               binding! Ensure fabric interface has IP \
                               assigned.')
+        if fabric_ip == mgmt_ip:
+            return get_mgmt_interface()
+        else:
+            return get_iface_from_addr(fabric_ip)
     else:
         try:
             all_fabric_interfaces = json.loads(fabric_interfaces)
         except ValueError:
             raise ValueError('Invalid json provided for fabric interfaces')
-        hostname = get_unit_hostname()
-        if hostname in all_fabric_interfaces:
-            node_fabric_interface = all_fabric_interfaces[hostname]
-        elif 'DEFAULT' in all_fabric_interfaces:
-            node_fabric_interface = all_fabric_interfaces['DEFAULT']
-        else:
-            raise ValueError('No fabric interface provided for node')
-        if interface_exists(node_fabric_interface):
-            return node_fabric_interface
-        else:
-            log('Provided fabric interface %s does not exist'
-                % node_fabric_interface)
-            raise ValueError('Provided fabric interface does not exist')
+    hostname = get_unit_hostname()
+    if hostname in all_fabric_interfaces:
+        node_fabric_interface = all_fabric_interfaces[hostname]
+    elif 'DEFAULT' in all_fabric_interfaces:
+        node_fabric_interface = all_fabric_interfaces['DEFAULT']
+    else:
+        raise ValueError('No fabric interface provided for node')
+    if interface_exists(node_fabric_interface):
         return node_fabric_interface
+    else:
+        log('Provided fabric interface %s does not exist'
+            % node_fabric_interface)
+        raise ValueError('Provided fabric interface does not exist')
+    return node_fabric_interface
 
 
 def get_gw_interfaces():
