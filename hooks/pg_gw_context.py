@@ -6,7 +6,6 @@
 from charmhelpers.contrib.openstack import context
 from charmhelpers.contrib.openstack.utils import get_host_ip
 from charmhelpers.core.hookenv import (
-    config,
     relation_ids,
     related_units,
     relation_get,
@@ -92,10 +91,7 @@ class PGGwContext(context.NeutronContext):
         pg_ctxt['fabric_interface'] = get_fabric_interface()
         pg_ctxt['label'] = unit_hostname
         pg_ctxt['fabric_mode'] = 'host'
-        if not config('external-interface'):
-            pg_ctxt['ext_interfaces'] = get_gw_interfaces()
-        else:
-            pg_ctxt['ext_interface'] = get_gw_interfaces()
+        pg_ctxt['ext_interfaces'] = get_gw_interfaces()
         pg_ctxt['opsvm_ip'] = pg_dir_context['opsvm_ip']
 
         return pg_ctxt

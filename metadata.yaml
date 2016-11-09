@@ -7,6 +7,9 @@ description: |
   fabric to external IP networks (such as for internet access). The PLUMgrid
   Gateway can be deployed as a pair in Active/ Active mode for load balancing
   of traffic and high availability of external connectivity.
+series:
+  - xenial
+  - trusty
 tags:
   - openstack
 requires:

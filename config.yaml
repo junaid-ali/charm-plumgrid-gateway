@@ -5,17 +5,13 @@ options:
     description: |
        One or multiple interfaces that will provide external connectivity on
        each of the gateway nodes. Provided in form of json in a string.
-  external-interface:
-    type: string
-    description: |
-       Interface that will provide external connectivity on each of the gateway
-       node. Provided in form of json in a string. This config is specific to OIL.
   lcm-ssh-key:
     default: 'null'
     type: string
     description: Public SSH key of PLUMgrid LCM which is running PG-Tools
   mgmt-interface:
     type: string
+    default:
     description: The interface connected to PLUMgrid Managment network.
   fabric-interfaces:
     default: 'MANAGEMENT'
@@ -47,3 +43,8 @@ options:
     type: string
     description: |
        Provide the build version of iovisor package that needs to be installed
+  docker-key-server:
+    default:
+    type: string
+    description:
+       Keyserver to be used for retrieving docker PGP key

@@ -21,10 +21,10 @@ from charmhelpers.core.hookenv import (
 )
 from charmhelpers.contrib.network.ip import (
     get_iface_from_addr,
-    get_host_ip,
-    get_iface_addr,
     get_bridges,
     get_bridge_nics,
+    get_iface_addr,
+    get_host_ip
 )
 from charmhelpers.core.host import (
     write_file,
@@ -142,8 +142,8 @@ def docker_configure_sources():
                      ' main')
     log('Importing GPG Key for docker engine')
     _exec_cmd(['apt-key', 'adv', '--keyserver',
-               'hkp://p80.pool.sks-keyservers.net:80',
-               '--recv-keys', '58118E89F3A912897C070ADBF76221572C52609D'])
+               config('docker-key-server'), '--recv-keys',
+               '58118E89F3A912897C070ADBF76221572C52609D'])
     try:
         with open('/etc/apt/sources.list.d/docker.list', 'w') as f:
             f.write(DOCKER_SOURCE % ubuntu_rel)
@@ -264,6 +264,7 @@ def get_mgmt_interface():
                 if (get_host_ip(unit_get('private-address'))
                         in get_iface_addr(bridge_interface)):
                     return bridge_interface
+        return get_iface_from_addr(unit_get('private-address'))
     elif interface_exists(mgmt_interface):
         return mgmt_interface
     else:
@@ -321,30 +322,12 @@ def get_gw_interfaces():
     Gateway node can have multiple interfaces. This function parses json
     provided in config to get all gateway interfaces for this node.
     '''
-    interface = config('external-interface')
-    if interface:
-        if not interface_exists(interface):
-            log('Provided gateway interface %s does not exist'
-                % interface)
-            raise ValueError('Provided gateway interface does not exist')
-        else:
-            return interface
-    node_interfaces = []
-    try:
-        all_interfaces = json.loads(config('external-interfaces'))
-    except ValueError:
-        raise ValueError("Invalid json provided for gateway interfaces")
-    hostname = get_unit_hostname()
-    if hostname in all_interfaces:
-        node_interfaces = all_interfaces[hostname].split(',')
-    elif 'DEFAULT' in all_interfaces:
-        node_interfaces = all_interfaces['DEFAULT'].split(',')
-    for interface in node_interfaces:
-        if not interface_exists(interface):
-            log('Provided gateway interface %s does not exist'
-                % interface)
-            raise ValueError('Provided gateway interface does not exist')
-    return node_interfaces
+    interface = config('external-interfaces')
+    if not interface_exists(interface):
+        log('Provided gateway interface %s does not exist'
+            % interface)
+        raise ValueError('Provided gateway interface does not exist')
+    return interface
 
 
 def ensure_mtu():
